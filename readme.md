@@ -4,10 +4,17 @@
 
 Challenges must be organized in a standard format in order to:
 - Automate deployment to CTFd
-- Facilitate the creation of a development -> testing -> production pipeline
+- Facilitate the creation of a CI/CD pipeline
 - Make it easier to modify challenge state over time and on game day
 
 This repository is strictly for **Hosted Challenges**. File-based Challenges are maintained in a different repository.
+
+## Assumptions
+This repository is associated with the **Chik-p** project and as such makes several assumptions: 
+- Hosted challenges are packaged as Docker images.
+- You have a private multi-node GKE cluster behind a public HAProxy load balancer
+- You wish to deploy challenges that players connect to using common tools such as netcat, ssh, telnet, or a web client such as their web browser.
+- You wish to expose challenges to the outside world either using a **NodePort Service coupled with HAProxy** or **ingress-nginx**.
 
 ## Infrastructure
 
@@ -22,69 +29,63 @@ Hosted challenges are deployed on a GKE cluster. Kubernetes affords CTF organize
 - Challenges can have **resource limits**. Resource limits protect against user overuse and inefficient code by ensuring one resource-hungry challenge pod does not compromise the entire cluster.
 
 ### HAProxy
-HAProxy is "is a free, very fast and reliable solution offering high availability, load balancing, and proxying for TCP and HTTP-based applications." It:
-- Acts as a proxy to TCP-based challenges on Google Kubernetes Engine (GKE)
-- Provides load balancing to the nodes in the cluster so that no single node is overwhelmed with connections
-- Limits the number of simultaneous connections to TCP-based challenges
+HAProxy is is a free, very fast and reliable solution offering proxying, load balancing, and rate limiting for TCP-based challenges:
+- **Proxying**: it proxies traffic to TCP-based challenge pods exposed via a Kubernetes NodePort service object
+- **Load Balancing**: it distributes traffic in a round robin fashion to GKE nodes so that no single node is overwhelmed with connections
+- **Rate Limiting**: it limits the number of simultaneous connections per IP to challenges
 
 ### ingress-nginx
-Ingress-Nginx is a traffic management solution for Kubernetes applications. It is used to:
-- Expose HTTP-based challenges to the internet
-- Enforce session affinity
-- Limit the # of simultaneous connections and requests to HTTP-based challenges
-
-## Assumptions
-This repository is associated with the **Chik-p** project and as such makes several assumptions: 
-- Hosted challenges are packaged as Docker images.
-- You have a private multi-node GKE cluster behind a public HAProxy load balancer
-- You wish to deploy challenges that players connect to using netcat, ssh, or their web browser.
-- You wish to expose challenges to the outside world either using a **NodePort Service** for TCP-based challenges or **ingress-nginx** for HTTP-based challenges.
+Ingress-Nginx is a traffic management solution for Kubernetes applications. It offers proxying, rate limiting, and session affinity enforcement for HTTP-based challenges.
+- **Proxying:** it exposes HTTP-based challenges to the internet
+- **Session Affinity**: it provides cookie-based session affinity for replicated, stateful web-based challenges 
+- **Rate Limiting**: it limits the # of simultaneous connections and requests to HTTP-based challenges
 
 ## General Organization
 
-At the root of this git repository, a directory is created for each **Challenge Category**. Each category folder contains a set of challenge folders representing individual challenges. 
+At the root of this git repository, a directory is created for each challenge **category**. Each category folder may contain one or more subfolders representing individual challenges. 
 
-For example, you might create a **Category folder** called “01-WEB”. Inside “01-WEB”, you can have a number of **challenge directories** such as “0x00-SQLInjection1” and “0x01-TreeTraversal”. 
+For example, you can create a **category** folder called “01-WEB”. Inside “01-WEB”, you can have a number of **challenge** directories such as “0x00-SQLInjection1” and “0x01-TreeTraversal”. 
 
 Each challenge directory must have the following structure: 
-- **player_files (Optional)**: contains any files the challenge developer wishes to share with the players.
+- `player_files` (Optional): contains any files the challenge developer wishes to share with the players.
 	- Anything like a JSON dump, a binary, etc. 
-- **documentation (Required)**: contains the challenge's documentation files including:
-	- **manifest.yml (Required)**: contains challenge metadata including challenge name, author, category, point value, flags, dependencies, tags, as well as deployment information such as the GCP project, container registry address, and destination kubernetes namespace.
-	- **instructions.txt (Required)**: contains the challege's instructions or in other words, what students see on CTFd when they click a particular challenge.
-	- **hint.txt (Optional)**: contains a hint that can aid the player in solving the challenge. The hint can be free or may have a cost associated with it. The cost is deducted from the team's total points. The hint_cost is not specified in hint.txt, only the hint itself. The hint_cost is specified using the "hint_cost" key in manifest.yml
-	- **solution.txt (Required)**: contains a detailed walkthrough of the challenge solution for mentors and/or students. Should contain the flags BUT CTFd will verify flag submissions based on what is in the “flags” keys in manifest.yml.
-- **docker_images (Required)**: contains 1 directory per docker image associated with the challenge. For example, if a web challenge requires two services, a PHP application and a PostgreSQL database, the docker_images folder would contain a "php" directory and a "postgresql" directory. Each of these would contain a Dockerfile that pulls a PHP image and a PostreSQL image, respectively.
-- **resources.yml (Required)**: contains the Kubernetes objects associated with the challenge such as Deployment, Service, and Ingress objects.
-- **docker-compose.yml (Required)**: in addition to Kubernetes resources, we create a docker-compose deployment for each challenge for testing purposes.
-- **quickstart (Required)**: simply give this script an IP and a port and it will deploy the challenge locally using specification in `docker-compose.yml`.
+- `documentation` (Required): contains the challenge's documentation files including:
+	- `manifest.yml` (Required): contains challenge metadata including challenge name, author, category, point value, flags, dependencies, tags, as well as deployment information such as the GCP project, container registry address, and destination kubernetes namespace.
+	- `instructions.txt` (Required): contains the challege's instructions or in other words, what students see on CTFd when they click a particular challenge.
+	- `hint.txt` (Optional): contains a hint that can aid the player in solving the challenge. The hint can be free or may have a cost associated with it. The cost is deducted from the team's total points. The hint_cost is not specified in `hint.txt`, only the hint itself. The hint_cost is specified using the `hint_cost` key in `manifest.yml`
+	- `solution.txt` (Required): contains a detailed walkthrough of the challenge solution for mentors and/or students. Should contain the flag(s).CTFd, however, will verify flag submissions based on what is in the `flags` keys in `manifest.yml`.
+- `docker_images` (Required): contains 1 directory per docker image associated with the challenge. For example, if a web challenge requires two services, a PHP application and a PostgreSQL database, the docker_images folder would contain a "php" directory and a "postgresql" directory. Each of these would contain a Dockerfile that pulls a PHP image and a PostreSQL image, respectively.
+- `resources.yml` (Required): contains the Kubernetes objects associated with the challenge such as Deployment, Service, and Ingress objects.
+- `docker-compose.yml` (Required): in addition to Kubernetes resources, we create a docker-compose deployment for each challenge for testing purposes.
+- `quickstart` (Required): copy this script from one of the example challenges; it is used alongside `docker-compose.yml`. Simply give it an IP address and a port number and it will deploy the challenge locally using the specification defined in `docker-compose.yml`.
 
-Here is an example CTF with three categories and three hosted challenges, one in each category:
+Here is an example CTF with two categories and two hosted challenges, one in each category. Ignore `SYSADMIN/BASE-IMAGE` for now. It will be described later.
 
 ![Repository Structure](readme-images/repo-structure.png)
 
 ## Deployment Order
 
-Note the number at the beginning of each category and challenge folder. This number is used to force deployment scripts to deploy challenges in a specific order. 
+Note the number at the beginning of each **category** and **challenge** folder. This number is used to force deployment scripts to deploy challenges in a specific order; CTFd requires a challenge to be present before another challenge marks it as a dependency. 
 
-This is important because CTFd requires a challenge to be present before another challenge marks it as a dependency. For example, SQLInjection2 cannot refer to SQLInjection1 as dependency until SQLInjection1 is has been deployed to CTFd.   
+For example, SQLInjection2 cannot refer to SQLInjection1 as dependency until SQLInjection1 is has been deployed to CTFd.   
 
 ## Hardening Hosted Challenges
 
-Special care should be taken when developing hosted challenges. The challenge developer should as much as possible limit one player's ability to sabotage another player. This is especially important for challenges where players log into a live box shared by one or more teams. Hardening hosted challenges can include but is not limited to:
+Special care should be taken when developing hosted challenges. The challenge developer should do everything possible to limit one player's ability to sabotage another player. Hardening is especially important for challenges where players log into a live box shared by one or more teams. Hardening hosted challenges can include but is not limited to:
 - making certain locations read only.
 - removing undeeded or dangerous software.
-- removing any privilege escalation utilities.
+- removing privilege escalation utilities.
 - etc.
 
 ### SYSADMIN Base Image
-A hardened base image is provided for SYSADMIN challenges in the SYSADMIN category. This image:
+A hardened base image is provided for **SYSADMIN** challenges in the SYSADMIN category. This image:
 - installs common Linux utilities and CTF tools
 - remove the ability to install software from the container
 - removes the SSH client
 - disallows root login via SSH
 - increases the maximum number of simultaneous SSH connections to the container
 - enables syslog and crond
+- deletes the bash history file every 2 mins to prevent players from seeing each other's commands.
 
 
 ## Provisioning Kubernetes Objects
@@ -92,11 +93,17 @@ A hardened base image is provided for SYSADMIN challenges in the SYSADMIN catego
 ### Resources File
 Kubernetes objects are specified in a `resources.yml` file in each challenge directory.
 
+Before provisioning Kubernetes resources, it is important to distinguish between **Single-Connection** and **Multi-Connection** challenges.
+
 ### Single-Connection vs. Multi-Connection Challenges
 
 In Kubernetes, challenge pods are often replicated. Replication can cause unwanted side effects. 
 
-For example, consider a web-based challenge where you must obtain a base64-encoded string from a web server, decode the string, and reply with the decoded string to get the flag. Throughout the course of this challenge, you must create and maintain a session with the destination web server. Solving this challenge requires two HTTP requests, one request to retrieve the base64-encoded string and another to reply with the decoded string. Now, imagine that this challenge has 2 replicas on Kubernetes. Since HTTP is a connectionless protocol,it does not guarantee that your two requests will be sent over the same connection to the same replica. Therefore it is possible that your first request is sent to one replica and your second request to another replica, due to Kubernetes' internal load balancing. In this case, the second replica does not know about the session you established with the first replica. As such, it will not send back the flag but will ignore the second request. 
+For example, consider a web-based challenge where you must obtain a base64-encoded string from a web server, decode the string, and reply with the decoded string to get the flag. 
+
+Throughout the course of this challenge, you must create and maintain a session with the destination web server. Solving this challenge requires two HTTP requests, one request to retrieve the base64-encoded string and another to reply with the decoded string. 
+
+Now, imagine that this challenge has 2 replicas on Kubernetes. Since HTTP is a connectionless protocol,it does not guarantee that your two requests will be sent over the same connection to the same replica. Therefore it is possible that your first request is sent to one replica and your second request to another replica, due to Kubernetes' internal load balancing. In this case, the second replica does not know about the session you established with the first replica, and as such, will not send back the flag but will ignore the second request. 
 
 This example helps us distiniguish between **single-connection challenges** and **multi-connection challenges**.
 
@@ -104,9 +111,15 @@ A **single-connection challenge** can be solved using a single web request or ov
 
 A **multi-connection challenge** requires two or more web requests or multiple TCP connections to solve. We must ensure that the player connects back to the same replica in a multi-connection challenge.
 
-For example, a web-based challenge that does not keep session information is likely a single-connection challenge. But a web-based challenge that sets a cookie in the user's browser is likely a multi-connection challenge. Similarly, a challenge that requires the player to SSH into a Debian box once is a single-connection challenge but if the player MUST exit and reconnect, as another user or the same user, to solve the challenge, then this is a multi-connection challenge.
+For example, a web-based challenge that does not keep session information is likely a single-connection challenge. But a web-based challenge that sets a cookie in the user's browser is likely a multi-connection challenge. Similarly, a challenge that requires the player to SSH into a Debian box once is a single-connection challenge but if the player MUST exit and reconnect, either manually or programmatically, to solve the challenge, then this is a multi-connection challenge.
 
 Challenge developers must identify their challenges as either single-connection or multi-connection as this will determine what Kubernetes resources are required.
+
+
+### Rules of Thumb
+
+Rule of Thumb #1: it is best to assume that all web-based challenge are multi-connection. 
+Rule of Thumb #2: most TCP-based (netcat, ssh, telnet) challenges will likely be single-connection challenges. However, to be safe, ask yourself the following question: does the player ever need to disconnect from the challenge and reconnect to it in order to solve it?
 
 ### Example #1: Provisioning Kubernetes Resources for a Single-Connection Challenge
 
@@ -155,7 +168,7 @@ spec:
           name: ssh-port
        
 ```
-Alone, a Deployment object cannot by itself provide access and loadbalancing services to challenge pods. To do this, we need a **Service** object. In this case, we use a **Service** of type **NodePort** to expose this challenge on port 30907 on all Kubernetes cluster nodes. More specifically, we map the node port, 30907, to port 22 in the challenge pod, the SSH port we exposed in the deployment. 
+Alone, a Deployment object cannot by itself provide access and load balancing services to challenge pods. To do this, we need a **Service** object. In this case, we use a **Service** of type **NodePort** to expose this challenge on port 30907 on all Kubernetes cluster nodes. More specifically, we map the node port, 30907, to port 22 in the challenge pod, the SSH port we exposed in the deployment. 
 
 ```
 apiVersion: v1
@@ -525,7 +538,7 @@ ctf challenge sync <CHALLENGE_DIRECTORY_FROM_REPO_ROOT>
 ```
 
 ### Deployment to Kubernetes
-The `challenge` script at the root of this repository automates the process of deploying challenges to CTFd by parsing the `k8s` section of `documentation/manifest.yml`.
+The `challenge` script located at the root of this repository automates the process of deploying challenges to Kubernetes by parsing the `k8s` section of `documentation/manifest.yml`.
 
 It can be used to deploy a challenge to Kubernetes using the `up` switch:
 ```
